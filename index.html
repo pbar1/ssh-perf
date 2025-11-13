@@ -1,0 +1,273 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cipher Performance Comparison</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .chart-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .stats-table {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .highlight {
+            background-color: #e8f5e9;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>SSH Cipher Performance Comparison</h1>
+    
+    <div class="chart-container">
+        <h2>Throughput (MiB/s) - Higher is Better</h2>
+        <canvas id="throughputChart"></canvas>
+    </div>
+    
+    <div class="chart-container">
+        <h2>Time per Packet (nanoseconds) - Lower is Better</h2>
+        <canvas id="timeChart"></canvas>
+    </div>
+    
+    <div class="stats-table">
+        <h2>Detailed Statistics</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Cipher</th>
+                    <th>Operation</th>
+                    <th>Time (ns)</th>
+                    <th>Throughput (MiB/s)</th>
+                    <th>Throughput (Gbit/s)</th>
+                </tr>
+            </thead>
+            <tbody id="statsBody">
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const benchmarkData = {"none/encrypt": 2.531835088241086, "none/decrypt": 2.491183435986286, "chacha20poly1305/encrypt": 1069.50390971196, "chacha20poly1305/decrypt": 1104.1954773433579, "aes128gcm (aws-lc-rs)/encrypt": 183.67563962631027, "aes128gcm (aws-lc-rs)/decrypt": 184.15125624378362, "aes128gcm (rustcrypto)/encrypt": 3702.8050774132807, "aes128gcm (rustcrypto)/decrypt": 3700.6148722268986, "aes256gcm (aws-lc-rs)/encrypt": 194.07050504876293, "aes256gcm (aws-lc-rs)/decrypt": 196.71137297144247};
+        const packetSize = 207;
+        
+        // Process data
+        const labels = [];
+        const encryptTime = [];
+        const decryptTime = [];
+        const encryptThroughput = [];
+        const decryptThroughput = [];
+        const statsRows = [];
+        
+        // Group by cipher
+        const ciphers = {};
+        for (const [key, timeNs] of Object.entries(benchmarkData)) {
+            if (timeNs === null) continue;
+            
+            const [cipher, operation] = key.split('/');
+            if (!ciphers[cipher]) {
+                ciphers[cipher] = {};
+            }
+            ciphers[cipher][operation] = timeNs;
+        }
+        
+        // Calculate throughput and prepare data
+        for (const [cipher, ops] of Object.entries(ciphers)) {
+            labels.push(cipher);
+            
+            const encTime = ops['encrypt'] || 0;
+            const decTime = ops['decrypt'] || 0;
+            
+            encryptTime.push(encTime);
+            decryptTime.push(decTime);
+            
+            // Throughput in MiB/s: (bytes * 1e9 / ns) / (1024*1024)
+            const encThroughput = (packetSize * 1e9 / encTime) / (1024 * 1024);
+            const decThroughput = (packetSize * 1e9 / decTime) / (1024 * 1024);
+            
+            encryptThroughput.push(encThroughput);
+            decryptThroughput.push(decThroughput);
+            
+            // Stats for table
+            statsRows.push({
+                cipher: cipher,
+                encrypt: {
+                    time: encTime.toFixed(2),
+                    throughput: encThroughput.toFixed(2),
+                    gbitps: (encThroughput * 8 / 1024).toFixed(2)
+                },
+                decrypt: {
+                    time: decTime.toFixed(2),
+                    throughput: decThroughput.toFixed(2),
+                    gbitps: (decThroughput * 8 / 1024).toFixed(2)
+                }
+            });
+        }
+        
+        // Sort labels and data by encrypt throughput for better visualization
+        const sorted = labels.map((label, i) => ({
+            label,
+            encTime: encryptTime[i],
+            decTime: decryptTime[i],
+            encThroughput: encryptThroughput[i],
+            decThroughput: decryptThroughput[i]
+        })).sort((a, b) => b.encThroughput - a.encThroughput);
+        
+        const sortedLabels = sorted.map(x => x.label);
+        const sortedEncryptTime = sorted.map(x => x.encTime);
+        const sortedDecryptTime = sorted.map(x => x.decTime);
+        const sortedEncryptThroughput = sorted.map(x => x.encThroughput);
+        const sortedDecryptThroughput = sorted.map(x => x.decThroughput);
+        
+        // Create throughput chart with LOG SCALE
+        new Chart(document.getElementById('throughputChart'), {
+            type: 'bar',
+            data: {
+                labels: sortedLabels,
+                datasets: [
+                    {
+                        label: 'Encrypt',
+                        data: sortedEncryptThroughput,
+                        backgroundColor: 'rgba(75, 192, 192, 0.7)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Decrypt',
+                        data: sortedDecryptThroughput,
+                        backgroundColor: 'rgba(153, 102, 255, 0.7)',
+                        borderColor: 'rgba(153, 102, 255, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        type: 'logarithmic',
+                        title: {
+                            display: true,
+                            text: 'Throughput (MiB/s, log scale)'
+                        },
+                        ticks: {
+                            callback: function(value, index, values) {
+                                if (value === 10 || value === 100 || value === 1000 || value === 10000 || value === 100000) {
+                                    return value.toLocaleString();
+                                }
+                                return null;
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Higher is Better (Log Scale)'
+                    }
+                }
+            }
+        });
+        
+        // Create time chart (log scale for better visualization)
+        new Chart(document.getElementById('timeChart'), {
+            type: 'bar',
+            data: {
+                labels: sortedLabels,
+                datasets: [
+                    {
+                        label: 'Encrypt',
+                        data: sortedEncryptTime,
+                        backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Decrypt',
+                        data: sortedDecryptTime,
+                        backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        type: 'logarithmic',
+                        title: {
+                            display: true,
+                            text: 'Time (nanoseconds, log scale)'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Lower is Better (Log Scale)'
+                    }
+                }
+            }
+        });
+        
+        // Populate stats table
+        const tbody = document.getElementById('statsBody');
+        statsRows.forEach(row => {
+            const encRow = `
+                <tr class="${row.cipher.includes('aes128gcm (aws-lc-rs)') ? 'highlight' : ''}">
+                    <td rowspan="2">${row.cipher}</td>
+                    <td>Encrypt</td>
+                    <td>${row.encrypt.time}</td>
+                    <td>${row.encrypt.throughput}</td>
+                    <td>${row.encrypt.gbitps}</td>
+                </tr>
+            `;
+            const decRow = `
+                <tr class="${row.cipher.includes('aes128gcm (aws-lc-rs)') ? 'highlight' : ''}">
+                    <td>Decrypt</td>
+                    <td>${row.decrypt.time}</td>
+                    <td>${row.decrypt.throughput}</td>
+                    <td>${row.decrypt.gbitps}</td>
+                </tr>
+            `;
+            tbody.innerHTML += encRow + decRow;
+        });
+    </script>
+</body>
+</html>
